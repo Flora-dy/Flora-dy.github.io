@@ -2,7 +2,7 @@
 
 把 Excel 人员名单粘进去，一键生成组织架构图、Word 人员资料表、人才结构分析和人员盘点表。
 
-**打开就能用 → https://USER.github.io/REPO/**
+**打开就能用 → https://flora-dy.github.io/org-chart-generator/**
 
 ## 特点
 
@@ -21,6 +21,10 @@
 只有 **组织1** 和 **姓名** 两列必填，其余留空不会报错。
 
 详细填法见 [使用说明.md](使用说明.md)。
+
+## 网址
+
+https://flora-dy.github.io/org-chart-generator/
 
 ## 更新
 
