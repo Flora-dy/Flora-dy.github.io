@@ -1408,8 +1408,17 @@ function buildSVG(model){
   const STAFF_BAND=STAFF.length?(H_STAFFBAR+6+H_STAFFBOX+40):0;
   const Y_STAFF=Y_CEN+CEN_BAND;
   // 部门分叉横线：有幕僚块时压到它下面，否则竖直引线会从幕僚块身上穿过去
+  /* 部门管理层按层级分行：同一档并排，不同档上下叠（与顶层区同一规则）。
+     中心总监和部门总监挤在一排会让人误以为是平级，这里按职级拆开。
+     按职级归桶，不能只合并相邻的——岗位排序会把同一档的人隔开，那样会多拆出一行。*/
+  const mgrRows=D=>{const bk={};
+    D.mgmt.forEach(m=>{const r=LV_RANK[m.层级]??999;(bk[r]=bk[r]||[]).push(m);});
+    return Object.keys(bk).map(Number).sort((a,b)=>a-b).map(r=>bk[r]);};
+  const H_MGR1=70+EX, GAP_MGR=18;
+  const MGR_ROWS=HAS_MGMT?Math.max(1,...depts.map(D=>mgrRows(D).length||1)):0;
   const Y_DEPT=Y_STAFF+STAFF_BAND, H_DEPT=32,
-        Y_MGR=Y_DEPT+H_DEPT+20,H_MGR=HAS_MGMT?(70+EX):0,
+        Y_MGR=Y_DEPT+H_DEPT+20,
+        H_MGR=HAS_MGMT?(MGR_ROWS*H_MGR1+(MGR_ROWS-1)*GAP_MGR):0,
         Y_GRP=HAS_MGMT?(Y_MGR+H_MGR+20):(Y_DEPT+H_DEPT+20),H_GRP=FRAME?44:96+EX,
         Y_MEM=Y_GRP+H_GRP+8,H_MEM=FRAME?0:60+EX,GAP_M=5;
   const Y_FAN=(STAFF.length||HAS_VIRT)?(Y_DEPT-14):(Y_CTR+H_CTR+12);
@@ -1678,23 +1687,30 @@ function buildSVG(model){
       text(cxx,Y_DEPT+21,dt,fit(dt,15.5,(x1-x0)-20),"#ffffff","bold");
     }
     const k=FRAME?0:D.mgmt.length;
+    let mbot=Y_MGR+H_MGR;                      // 本部门管理层实际的底边
     if(k){
-      const bw=Math.min(300,((x1-x0)-(k-1)*10)/k),tot=bw*k+10*(k-1),sx=x0+((x1-x0)-tot)/2;
+      const rowsM=mgrRows(D);
+      mbot=Y_MGR+(rowsM.length-1)*(H_MGR1+GAP_MGR)+H_MGR1;
       line(cxx,Y_DEPT+H_DEPT,cxx,Y_MGR-8);
-      if(k>1) line(sx+bw/2,Y_MGR-8,sx+tot-bw/2,Y_MGR-8);
       const _dm=deputyPool(D.mgmt,DEPUTY_STYLE);
-      D.mgmt.forEach((m,j)=>{
-        const d=_dm.has(m), w2=(d&&NARROW)?bw*0.84:bw;   // 收窄时保持中线对齐
-        const bx=sx+j*(bw+10)+(bw-w2)/2;
-        line(bx+w2/2,Y_MGR-8,bx+w2/2,Y_MGR);
-        box(bx,Y_MGR,w2,H_MGR,m.层级,prow(m),sideTag(m),null,m.状态,d,roleOf(m));});
+      rowsM.forEach((mrow,ri)=>{
+        const n=mrow.length, my=Y_MGR+ri*(H_MGR1+GAP_MGR);
+        const bw=Math.min(300,((x1-x0)-(n-1)*10)/n),tot=bw*n+10*(n-1),sx=x0+((x1-x0)-tot)/2;
+        if(ri) line(cxx,my-GAP_MGR,cxx,my-8);  // 上一行底边 → 这一行，主干贯通
+        if(n>1) line(sx+bw/2,my-8,sx+tot-bw/2,my-8);
+        mrow.forEach((m,j)=>{
+          const d=_dm.has(m), w2=(d&&NARROW)?bw*0.84:bw;   // 收窄时保持中线对齐
+          const bx=sx+j*(bw+10)+(bw-w2)/2;
+          line(bx+w2/2,my-8,bx+w2/2,my);
+          box(bx,my,w2,H_MGR1,m.层级,prow(m),sideTag(m),null,m.状态,d,roleOf(m));});
+      });
     }
     // 本部门没有管理层时，组和成员整体上移，不留空行
     // 上移时仍要给连线支架留出净空（支架画在 GY-14），否则会压进部门横条
     const GY = (HAS_MGMT && !k) ? Math.max(Y_MGR, Y_DEPT+H_DEPT+20) : Y_GRP;
     const MY = GY + H_GRP + 8;
     if(!D.groups.length) return;                      // 没有下级分组就不往下画线，免得悬空
-    line(cxx, k?(Y_MGR+H_MGR):(Y_DEPT+H_DEPT), cxx, GY-14);
+    line(cxx, k?mbot:(Y_DEPT+H_DEPT), cxx, GY-14);
     // 分组数少于本部门列数时（管理层撑宽了部门），把这些组在部门跨度内居中
     const gpad=(colsOf(D)-D.groups.length)*(COLW+COL_GAP)/2;
     const gxs=D.groups.map((_,i)=>cols[COL_BASE[di]+i]+gpad+COLW/2);
