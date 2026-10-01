@@ -117,6 +117,7 @@
     <label><input type="checkbox" id="hideDeptBar" onchange="run()"> 隐藏部门横条</label>
     <label><input type="checkbox" id="moduleTint" onchange="run()" checked> 各板块用不同颜色</label>
     <label title="关掉后，顶层框/中心带/部门条/组头上的「共 N 人」全部不显示；Word 人员资料表和分析报告不受影响"><input type="checkbox" id="showCount" onchange="run()" checked> 显示各单元人数</label>
+    <label title="虚设单元默认只列参与人姓名；勾上后像普通部门一样展开，参与人带完整信息横向排开"><input type="checkbox" id="virtDetail" onchange="run()"> 虚设单元显示人员信息</label>
     <label title="框最下方那条黄标里的「B岗：某某」；两个都关掉则整条黄标不画，框也随之变矮"><input type="checkbox" id="showBgang" onchange="run()" checked> 显示 B岗</label>
     <label title="框最下方那条黄标里的「二传手：某某」"><input type="checkbox" id="showSecond" onchange="run()" checked> 显示二传手</label>
     <label title="人员框里「学历＋专业」那一行；关掉后这一行整体不出"><input type="checkbox" id="showEdu" onchange="run()" checked> 显示学历专业</label>
@@ -271,6 +272,7 @@ function tagLegend(){
   return "";
 }
 const DEPT_BAR="#1f4e79", BGANG="#ffff00", TAG_H=14;
+const VIRT_BAR="#5B6C8F";   // 虚设单元横条色（与顶部虚设块同色）
 /* 院校层次：985 / 211 名单（教育部口径），「院校层次」列留空时按校名自动判定 */
 const SCHOOL_985=new Set(`北京大学 中国人民大学 清华大学 北京航空航天大学 北京理工大学 中国农业大学
 北京师范大学 中央民族大学 南开大学 天津大学 大连理工大学 东北大学 吉林大学 哈尔滨工业大学 复旦大学
@@ -597,7 +599,7 @@ function parseRaw(){
   window._hiddenCount = people.length - kept.length;
   if(!kept.length) throw "所有人都被标为「不上图」";
   // 虚设单元：把参与人名字收走，本人不占编制（主岗另有其行）
-  window._virtual={};
+  window._virtual={}; window._virtualP={}; window._virtualOwner={};
   const virt=kept.filter(p=>VIRTUAL_ROLE.test(p.架构角色||""));
   if(virt.length){
     // 从最内层往外找：第一个「至少两位参与人共有、且不是实体单元」的层级就是单元名。
@@ -612,6 +614,12 @@ function parseRaw(){
       const u=[...path].reverse().find(v=>vcnt[v]>=2&&!realNames.has(v)) || path[path.length-1]
               || p.部门 || p.中心 || "虚设单元";
       (window._virtual[u]=window._virtual[u]||[]).push(p.姓名);
+      (window._virtualP[u]=window._virtualP[u]||[]).push(p);
+      // 单元名外面那一层＝它所属的中心/部门；是整张图的根时留空（仍挂顶部主干线右侧）
+      if(!(u in window._virtualOwner)){
+        const _i=path.indexOf(u);
+        window._virtualOwner[u]=_i>0?path[_i-1]:"";
+      }
     });
     kept=kept.filter(p=>!virt.includes(p));
   }
@@ -883,6 +891,27 @@ function aggregate(people){
     const blockOf=D=>D.cen||("\u0000"+D.name);
     const pos={}; depts.forEach((D,i)=>{const b=blockOf(D); if(!(b in pos)) pos[b]=i;});
     depts.sort((a,b)=>pos[blockOf(a)]-pos[blockOf(b)]);
+  }
+  // 虚设单元挂位：属于某中心 → 该中心末尾的「伪部门」；属于某部门 → 该部门末尾的「伪分组」；
+  // 属于整张图最外层的仍挂顶部主干线右侧。位置宽度全部交给既有布局，不会和别的框叠在一起。
+  {
+    const VP=window._virtualP||{}, VO=window._virtualOwner||{};
+    const DET=!!document.getElementById('virtDetail')?.checked;
+    window._virtTop={};
+    for(const u of Object.keys(VP)){
+      const own=VO[u]||"", ppl=VP[u];
+      const cenHit=own?depts.map((D,i)=>D.cen===own?i:-1).filter(i=>i>=0):[];
+      const depHit=own?depts.filter(D=>D.name===own):[];
+      if(cenHit.length){
+        depts.splice(cenHit[cenHit.length-1]+1,0,
+          {name:u,cen:own,mgmt:[],groups:[],gmap:{},virtual:true,vp:ppl});
+      }else if(depHit.length){
+        const D=depHit[0];
+        if(DET) ppl.forEach((m,j)=>D.groups.push(
+          {name:u,members:[m],ext:null,virtual:true,vp:[m],vhead:j===0,vn:ppl.length}));
+        else D.groups.push({name:u,members:[],ext:null,virtual:true,vp:ppl,vhead:true,vn:ppl.length});
+      }else window._virtTop[u]=(window._virtual||{})[u];
+    }
   }
   // 图上拖拽产生的人员顺序优先；同时把当前顺序登记下来，供下次拖拽计算
   for(const D of depts) for(const G of D.groups){
@@ -1275,7 +1304,9 @@ function buildSVG(model){
   let STAFF=depts.filter(D=>[...D.mgmt,...D.groups.flatMap(G=>G.members)]
                               .some(m=>STAFF_ROLE.test(m.架构角色||"")));
   if(STAFF.length&&!FRAME) depts=depts.filter(D=>!STAFF.includes(D)); else STAFF=[];
-  const colsOf=D=>Math.max(1,D.groups.length,D.mgmt.length);
+  const VIRT_DETAIL=!!document.getElementById('virtDetail')?.checked;
+  const colsOf=D=>D.virtual?(VIRT_DETAIL?Math.max(1,D.vp.length):1)
+                           :Math.max(1,D.groups.length,D.mgmt.length);
   const NG=depts.reduce((s,D)=>s+colsOf(D),0)||1;
   const edges=new Set();let acc=-1;
   depts.slice(0,-1).forEach(D=>{acc+=colsOf(D);edges.add(acc);});
@@ -1320,6 +1351,8 @@ function buildSVG(model){
   // 只有填了「组头」类角色才关闭自动取组头；「幕僚」是位置标记，不算
   const EXPLICIT_MODE=people.some(p=>["组头","组长","负责人"].some(k=>(p.架构角色||"").includes(k)));
   const HEAD_UNIFORM=!!document.getElementById('headUniform')?.checked;
+  const deptCount=D=>D.virtual?0:(D.mgmt.length
+      +D.groups.reduce((s,G)=>s+(G.virtual?0:G.members.length),0));   // 虚设单元不占编制
   const SHOW_DEPTBAR=!document.getElementById('hideDeptBar')?.checked;
   // 板块配色：每个部门一种颜色；关掉就全部回到单一深蓝
   const MODULE_TINT=document.getElementById('moduleTint')?.checked!==false;
@@ -1364,11 +1397,12 @@ function buildSVG(model){
   // 幕僚位占的高度：一条小横条 + 一排人员框，插在顶层和部门行之间
   const H_STAFFBAR=26, H_STAFFBOX=70+EX;
   const VIRTUAL=window._virtual||{};
-  const HAS_VIRT=!FRAME&&Object.keys(VIRTUAL).length>0;
+  const VIRT_TOP=window._virtTop||{};
+  const HAS_VIRT=!FRAME&&Object.keys(VIRT_TOP).length>0;
   // 虚设单元是整个中心层面的机构（PMO、委员会），紧贴顶层框挂在主干线右侧，
   // 排在中心带之前——排在后面会沉到部门行旁边，看着像是某个部门下属的。
   const VIRT_UNIT=H_STAFFBAR+6+46+26;                 // 单个虚设单元占的高度（含间距）
-  const VIRT_BAND=HAS_VIRT?VIRT_UNIT*Object.keys(VIRTUAL).length:0;  // 多个虚设单元上下叠放
+  const VIRT_BAND=HAS_VIRT?VIRT_UNIT*Object.keys(VIRT_TOP).length:0;  // 多个虚设单元上下叠放
   const Y_VIRT=Y_CTR+H_CTR+18;
   const Y_CEN=Y_CTR+H_CTR+22+VIRT_BAND;
   const STAFF_BAND=STAFF.length?(H_STAFFBAR+6+H_STAFFBOX+40):0;
@@ -1515,8 +1549,8 @@ function buildSVG(model){
   if(HAS_VIRT){
     let vy=Y_VIRT;
     line(PAGE_W/2, Y_CTR+H_CTR+12, PAGE_W/2, Y_TFAN);
-    for(const un in VIRTUAL){
-      const names=VIRTUAL[un], t=names.map(n=>maskText(n,NAMES)).join("、");
+    for(const un in VIRT_TOP){
+      const names=VIRT_TOP[un], t=names.map(n=>maskText(n,NAMES)).join("、");
       const vw=Math.min(PAGE_W/2-ML-60, Math.max(420, wid(t,12.4)+50));
       let vx=PAGE_W/2+46;
       if(vx+vw>PAGE_W-ML) vx=Math.max(PAGE_W/2+26, PAGE_W-ML-vw);
@@ -1570,7 +1604,7 @@ function buildSVG(model){
       const cx=(x0+x1)/2; topXs.push(cx);
       if(center) line(cx,Y_TFAN,cx,Y_CEN);
       rect(x0,Y_CEN,x1-x0,H_CENBAR,"#8f3b36","#8f3b36",1,4);
-      const n=idxs.reduce((s,i)=>s+depts[i].mgmt.length+depts[i].groups.reduce((a,G)=>a+G.members.length,0),0)
+      const n=idxs.reduce((s,i)=>s+deptCount(depts[i]),0)
               +((cenHeads[c]||[]).length);
       // 同级里只要有别的中心画了负责人框，这个没有的就补一个「负责人暂缺」虚线框，
       // 两边高度对齐、读图时不会以为这一层被跳过了。兼管信息放进框里，横条上就不重复写。
@@ -1613,10 +1647,33 @@ function buildSVG(model){
         line(Math.min(ccx,cxx),from+11,Math.max(ccx,cxx),from+11);
         line(cxx,from+11,cxx,Y_DEPT); }
     }else if(center) line(cxx,Y_TFAN,cxx,Y_DEPT);            // 直属部门：从分叉横线下来
+    if(D.virtual){
+      // 虚设伪部门：横条用专色并写明「虚设」，下面按开关决定列姓名还是展开人员框
+      rect(x0,Y_DEPT,x1-x0,H_DEPT,VIRT_BAR,VIRT_BAR,1,4);
+      const vt=SHOW_COUNT?`${D.name}　虚设·${D.vp.length} 人参与`:`${D.name}　虚设`;
+      text(cxx,Y_DEPT+21,vt,fit(vt,14.5,(x1-x0)-20),"#ffffff","bold");
+      const gy=Y_GRP;
+      line(cxx,Y_DEPT+H_DEPT,cxx,gy-14);
+      if(VIRT_DETAIL){
+        const xs=D.vp.map((_,i)=>cols[COL_BASE[di]+i]+COLW/2);
+        if(xs.length>1) line(Math.min(...xs),gy-14,Math.max(...xs),gy-14);
+        D.vp.forEach((m,i)=>{
+          const gx=cols[COL_BASE[di]+i];
+          line(gx+COLW/2,gy-14,gx+COLW/2,gy);
+          box(gx,gy,COLW,H_GRP,m.层级,prow(m),sideTag(m),null,m.状态,false,roleOf(m));
+        });
+      }else{
+        const t=(VIRTUAL[D.name]||[]).map(n=>maskText(n,NAMES)).join("、");
+        rect(x0,gy,x1-x0,46,"#EEF1F6",VIRT_BAR,1.2,4);
+        text(cxx,gy+19,SHOW_COUNT?`参与人（${D.vp.length} 人）`:"参与人",10.6,VIRT_BAR,"bold");
+        text(cxx,gy+36,t,fit(t,12.4,(x1-x0)-24),"#1f2328","bold");
+      }
+      return;
+    }
     if(SHOW_DEPTBAR){
       const dc=deptColor(D.name);
       rect(x0,Y_DEPT,x1-x0,H_DEPT,dc,dc,1,4);
-      const cnt=D.mgmt.length+D.groups.reduce((s,G)=>s+G.members.length,0);
+      const cnt=deptCount(D);
       const dt=`${D.name}${cntSuf(cnt,"　　")}`;
       text(cxx,Y_DEPT+21,dt,fit(dt,15.5,(x1-x0)-20),"#ffffff","bold");
     }
@@ -1645,6 +1702,24 @@ function buildSVG(model){
     D.groups.forEach((G,i)=>{
       const gx=cols[COL_BASE[di]+i]+gpad,gcx=gx+COLW/2;
       line(gcx,GY-14,gcx,GY);
+      if(G.virtual){
+        // 虚设分组：简略列姓名，明细则一人一框横排；只在第一列写单元名横条
+        if(G.vhead){
+          const w=VIRT_DETAIL?(COLW*G.vn+COL_GAP*(G.vn-1)):COLW;
+          rect(gx,GY-10,w,22,VIRT_BAR,VIRT_BAR,1,4);
+          const vt=SHOW_COUNT?`${G.name}　虚设·${G.vn} 人`:`${G.name}　虚设`;
+          text(gx+w/2,GY+5,vt,fit(vt,11.5,w-12),"#ffffff","bold");
+        }
+        if(VIRT_DETAIL){
+          const m=G.vp[0];
+          box(gx,GY+16,COLW,H_GRP-16,m.层级,prow(m),sideTag(m),null,m.状态,false,roleOf(m));
+        }else{
+          const t=(VIRTUAL[G.name]||[]).map(n=>maskText(n,NAMES)).join("、");
+          rect(gx,GY+16,COLW,H_GRP-16,"#EEF1F6",VIRT_BAR,1.2,4);
+          text(gcx,GY+38,t,fit(t,11.5,COLW-14),"#1f2328","bold");
+        }
+        return;
+      }
       const title=`${G.name}${cntTail(G.members.length)}`;
       if(FRAME){            // 骨架图：一个组只画一个框，里面只有组名和人数
         box(gx,GY,COLW,H_GRP,"组长",[[title+(G.ext?`（${G.ext.姓名} 兼）`:""),13,"bold"]]);
