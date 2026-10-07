@@ -850,10 +850,12 @@ function aggregate(people){
     const all={};
     depts.forEach(D=>Object.keys(D.gmap).forEach(gn=>(all[gn]=all[gn]||[]).push(D)));
     const cenNames2=new Set(depts.map(D=>D.cen).filter(Boolean));
-    depts.forEach(D=>D.mgmt.forEach(m=>{
+    const owners=[...TOPS, ...Object.values(cenHeads).flat(), ...depts.flatMap(D=>D.mgmt)];
+    [...new Set(owners)].forEach(m=>{
       if(m.兼管&&cenNames2.has(m.兼管)) return;
       if(!m.兼管) return;
-      if(D.gmap[m.兼管]){ D.gmap[m.兼管].ext=m; return; }
+      const own=depts.find(D=>D.mgmt.includes(m));
+      if(own?.gmap[m.兼管]){ own.gmap[m.兼管].ext=m; return; }
       const hit=all[m.兼管]||[];
       if(hit.length===1){
         hit[0].gmap[m.兼管].ext=m;
@@ -861,7 +863,7 @@ function aggregate(people){
       }else if(hit.length>1){
         FIX.push(`${m.姓名} 的「兼管分组」填的是「${m.兼管}」，但有 ${hit.length} 个部门都有同名的组，无法判断，已跳过`);
       }
-    }));
+    });
   }
 
   // 组员（非管理层级）填「兼管分组」：他不接管那个组，只在那个组挂一条「兼岗」旁注，
