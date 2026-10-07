@@ -290,10 +290,10 @@ function inServiceDegree(v){
   const m=t.match(/博士后|博士|硕士|本科|大专|MBA|EMBA/);
   return m?m[0]:"";
 }
-function sideTag(p){
+function sideTag(p,includeSecond=true){
   const v=x=>{x=String(x||"").trim();return ["","—","-","无"].includes(x)?"":x;};
   const a=[];
-  if(showSecond()&&v(p.二传手)) a.push("二传手："+v(p.二传手));
+  if(includeSecond&&showSecond()&&v(p.二传手)) a.push("二传手："+v(p.二传手));
   if(showBgang() &&v(p.B岗))    a.push("B岗："+v(p.B岗));
   return a.length?a.join(" ｜ "):null;
 }
@@ -1803,7 +1803,8 @@ function buildSVG(model){
            [`${xl} ${m.专业}`,10.6,"normal"],
            [`${m.工龄}年/${m.司龄}年｜${maskGrade(m.职级)}`,10.6,"normal"]];
         const _p=payLine(m); if(HAS_PAY&&_p) _r.push([_p,10.2,"normal"]);
-        box(gx,GY,COLW,H_GRP,m.层级,_r,mergeTag(sideTag(m),groupTag(G,NAMES)),
+        // 二传手归属本职岗位，不能自动继承到负责人兼管的组。
+        box(gx,GY,COLW,H_GRP,m.层级,_r,mergeTag(sideTag(m,false),groupTag(G,NAMES)),
             {d:D.name,g:G.name,n:m.姓名,h:1,e:(G.keep&&!G.members.length)?1:0},m.状态,false,roleOf(m));
         mem=G.members;
       }else{
