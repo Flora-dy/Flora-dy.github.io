@@ -92,7 +92,8 @@
   <h2>① 粘贴人员名单（在 Excel 里连表头一起全选 → Ctrl+C，在这里 Ctrl+V）</h2>
   <details class="help"><summary>字段说明与排序规则（一般不用看，点开查阅）</summary>
   <div class="hint">列顺序和人员行顺序都可以打乱，系统会按表头识别并自动归组、排序。表头名称要和《人员信息填写模板.xlsx》一致：
-  中心 / 部门 / 分组 / 姓名 / 岗位 / 层级(中心·部门负责人·二传手·组长·骨干·培养) / 性别 / 学历 / 在职学历 / 毕业院校 / 所学专业 / 工龄 / 司龄 / 职等职级 / 全日制 / 核心岗位 / B岗人员 / 培养方向 / 状态(管培生·试用·外包·产假) / 兼管分组 / 月薪 / 年薪<br>
+  中心 / 部门 / 分组 / 姓名 / 岗位 / 层级(中心·部门负责人·二传手·组长·骨干·培养) / 性别 / 学历 / 在职学历 / 毕业院校 / 所学专业 / 参加工作时间 / 来公司时间 / 职等职级 / 全日制 / 核心岗位 / B岗人员 / 培养方向 / 状态(管培生·试用·外包·产假) / 兼管分组 / 月薪 / 年薪<br>
+  <b>年限自动计算</b>：新模板填写「参加工作时间」「来公司时间」，例如 2001、06、2001、6、2001-06 或 2001年6月。以「文件名／统计日期」为基准，按整月差÷12计算并保留1位小数；留空按当天。只填年份按当年7月估算。旧表的「工龄」「司龄」数字列仍可用。<br>
   岗位从高到低：副总 → 中心总监 → 中心副总监 → 部门总监 → 部门副总监 → 部门经理 → 部门副经理 → 主管 → 组长；层级填 B岗/B 岗会按二传手处理，填管培生会按培养处理。<br>
   <b>可选列</b>：<b>显示岗位</b>（图上用它替代岗位，正式岗位仍保留在表里）／<b>架构角色</b>（填「组头」指定组负责人；只要全表有人填过，就不再自动把每组第一人当组头，可让某组没有组头）／<b>不上图</b>（填「是」的人保留在数据里，但不进图、不进 Word、不计入人数）／<b>显示顺序</b>（数字，控制组和人的先后，优先级最高）。<br>
   排序优先级：填了「显示顺序」→ 按它；勾选「按表格原顺序」→ 按 Excel 行序；都没有 → 按岗位高低自动排序。</div>
@@ -102,6 +103,10 @@
   <div class="row">
     <button class="sec" onclick="loadDemo()">填入示例数据试试</button>
     <button class="sec" onclick="refreshFilter()">重新读取中心/部门列表</button>
+    <button class="sec" onclick="clearAll()" title="清空已粘贴的数据、图和所有拖动结果，回到刚打开的状态">清空</button>
+    <a class="sec" style="text-decoration:none;display:inline-block"
+       href="人员信息填写模板.xlsx" download
+       title="39 列标准模板，含「←填写须知」页；填好后整页复制粘贴到上面即可">下载人员信息模板</a>
   </div>
 </div>
 
@@ -112,7 +117,7 @@
       oninput="_titleTouched=true" title="留空并重新读取数据可恢复自动标题"></label>
     <label title="姓名脱敏：张三→张X，图上、Word、分析报告里出现的人名一并替换"><input type="checkbox" id="maskName" onchange="run()"> 脱敏·姓名（张三→张X）</label>
     <label title="职级脱敏：T3-4→TX-X，只影响职等职级那一段"><input type="checkbox" id="maskGd" onchange="run()"> 脱敏·职级（T3-4→TX-X）</label>
-    <label>文件名日期 <input type="text" id="fdate" size="11" placeholder="留空=今天"></label>
+    <label title="同时作为工龄和司龄的计算基准日；可填 20261006 或 2026-10-06">文件名／统计日期 <input type="text" id="fdate" size="11" placeholder="留空=今天" onchange="if(document.getElementById('data').value.trim()) run()"></label>
     <label><input type="checkbox" id="headUniform" onchange="run()"> 组头统一紫色</label>
     <label><input type="checkbox" id="hideDeptBar" onchange="run()"> 隐藏部门横条</label>
     <label><input type="checkbox" id="moduleTint" onchange="run()" checked> 各板块用不同颜色</label>
@@ -250,6 +255,35 @@ function groupTag(G,names){
    ① 填「是/否」→ 只是个开关，学历列写的就是在读的那个学位（老填法）
    ② 直接写学位，如「博士在读」「在读博士」→ 学历列写的是已拿到的学位，
       这里返回在读的学位名，图上单独标一句「在读博士」，不覆盖已有学历 */
+/* 「参加工作时间 / 来公司时间」→ 工龄 / 司龄
+   认这些写法：2001、06  2001.6  2001-06  2001/6  2001年6月  200106  2001
+   标点一律当分隔符，不限哪一种；只填年份时按当年 7 月（年中）估算，避免系统性高估。 */
+function parseYM(v){
+  const t=String(v==null?"":v).trim();
+  if(!t||["—","-","无"].includes(t)) return null;
+  let a=t.match(/^(\d{4})(\d{2})(\d{2})?$/);
+  if(!a) a=t.match(/^(\d{4})[\s、，,./\-年：:]+(\d{1,2})(?:[\s、，,./\-月：:]+(\d{1,2}))?[月日]?$/);
+  if(!a){const y=t.match(/^(\d{4})\s*年?$/); return y&&+y[1]>=1000?{y:+y[1],m:7}:null;}
+  const y=+a[1], m=+a[2], day=a[3]?+a[3]:1;
+  const d=new Date(y,m-1,day);
+  return y>=1000&&d.getFullYear()===y&&d.getMonth()===m-1&&d.getDate()===day?{y,m}:null;
+}
+/* 从「年月」算到基准日的年数，保留 1 位小数；算不出就返回 "" */
+function yearsSince(v, ref){
+  const ym=parseYM(v); if(!ym) return "";
+  const n=((ref.getFullYear()-ym.y)*12 + (ref.getMonth()+1-ym.m))/12;
+  return n<0 ? "" : n.toFixed(1);
+}
+/* 基准日：用「文件名日期」框里的日期，留空就用今天 */
+function refDate(){
+  const t=(document.getElementById('fdate')?.value||"").trim();
+  if(!t) return new Date();
+  const a=t.match(/^(\d{4})(\d{2})(\d{2})$/)||t.match(/^(\d{4})[\s、，,./\-年]+(\d{1,2})[\s、，,./\-月]+(\d{1,2})日?$/);
+  if(a){const y=+a[1],m=+a[2],day=+a[3],d=new Date(y,m-1,day);
+    if(y>=1000&&d.getFullYear()===y&&d.getMonth()===m-1&&d.getDate()===day) return d;}
+  throw "统计日期无效，请填写完整日期，例如 20261006 或 2026-10-06";
+}
+
 function inServiceDegree(v){
   const t=String(v||"").trim();
   if(!t||["是","否","1","0","Y","y","N","n","—","-"].includes(t)) return "";
@@ -527,10 +561,7 @@ let lastSVG="", lastW=0, lastH=0, lastModel=null;
 
 /* 文件名日期后缀：取「文件名日期」输入框，留空则用今天 */
 function fileDate(){
-  const el=document.getElementById('fdate');
-  const v=(el&&el.value||"").replace(/\D/g,"");
-  if(v.length===8) return v;
-  const d=new Date();
+  const d=refDate();
   return d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0");
 }
 function stamp(base,ext){
@@ -538,7 +569,21 @@ function stamp(base,ext){
 }
 
 /* ═══════════ 解析粘贴的表格 ═══════════ */
-function parse(){ return aggregate(applyFilter(parseRaw())); }
+function parse(){
+  const raw=parseRaw();
+  // 落点记录的失效清理放在这里：必须用【未筛选】的名单判活。
+  // 放在 aggregate() 里会用到筛选后的名单——人一被筛掉记录就被当成过期删掉，
+  // 切回筛选也回不来；而且点「分析/盘点」标签页同样会走 aggregate()，渲染不该改拖拽状态。
+  {
+    const alive=new Set(raw.map(p=>p.姓名));
+    EMPTY_KEEP=EMPTY_KEEP.filter(e=>e.by.some(n=>alive.has(n)&&(n in PERSON_MOVE)));
+  }
+  // 未筛选名单里还有人的部门：它不在视图里只是被筛掉了，不能当成「被拖空」去重建。
+  // 口径必须和建 dmap 时一致——顶层框/中心带的人不算部门，否则顶层那位也填了「部门」
+  // 列时，这里会多出一个部门，守卫误判成「只是被筛掉」，落点就补不回来。
+  window._rawDepts=new Set(deptsOf(raw));
+  return aggregate(applyFilter(raw));
+}
 
 function parseRaw(){
   const raw=document.getElementById('data').value.replace(/\r/g,'');
@@ -553,7 +598,7 @@ function parseRaw(){
     "中心","部门","分组","组织1","组织2","组织3","组织4","组织5","组织6",
     "姓名","岗位","层级","性别","党员","最高学历","学历","在职学历","统招",
     "最高学历院校","毕业院校","最高学历专业","所学专业",
-    "工龄","司龄","职等职级","月薪","年薪","全日制","核心岗位",
+    "参加工作时间","来公司时间","工龄","司龄","职等职级","月薪","年薪","全日制","核心岗位",
     "B岗人员","二传手","培养方向","状态","兼管分组","显示岗位","架构角色","不上图","显示顺序"];
   const EXTRA_COLS=hdr.filter(h=>h&&!KNOWN.includes(h));
   window._extraCols=EXTRA_COLS;
@@ -562,12 +607,20 @@ function parseRaw(){
                    "最高学历院校":["最高学历院校","毕业院校"],
                    "最高学历专业":["最高学历专业","所学专业"]};
   const idx=n=>{for(const a of (COL_ALIAS[n]||[n])){const i=hdr.indexOf(a);if(i>=0)return i;}return -1;};
+  const _REF=refDate();      // 工龄/司龄的计算基准日，整张表只取一次
   const g=(cells,n,d="")=>{const i=idx(n);return (i>=0&&cells[i]!=null&&String(cells[i]).trim())?String(cells[i]).trim():d;};
   const people=[];
   window._levelFixes=[];
   for(let li=1;li<lines.length;li++){
     const c=lines[li].split(sep);
     if(!g(c,"姓名")) continue;
+    const tenure=(dateCol,oldCol)=>{
+      const v=g(c,dateCol);
+      if(!v||["—","-","无"].includes(v)) return g(c,oldCol);
+      const n=yearsSince(v,_REF);
+      if(n==="") throw `第 ${li+1} 行「${dateCol}」无效或晚于统计日期：${v}；请填写年月，例如 2001、6`;
+      return n;
+    };
     const rawLevel=g(c,"层级"), level=normalizeLevel(rawLevel, g(c,"岗位"), g(c,"姓名"));
     const rawStatus=g(c,"状态");
     people.push({
@@ -578,7 +631,11 @@ function parseRaw(){
       党员:["是","1","Y","y","√"].includes(g(c,"党员")), 统招:g(c,"统招"),
       在职:["是","1","Y","y"].includes(g(c,"在职学历")),
       在读:inServiceDegree(g(c,"在职学历")),
-      专业:g(c,"最高学历专业","—"), 工龄:g(c,"工龄"), 司龄:g(c,"司龄"),
+      // 「参加工作时间 / 来公司时间」填了就自动换算，没填才用手填的工龄/司龄，
+      // 这样老表不用改也能跑，新表填日期则全公司口径一致
+      专业:g(c,"最高学历专业","—"),
+      工龄:tenure("参加工作时间","工龄"),
+      司龄:tenure("来公司时间","司龄"),
       职级:g(c,"职等职级","—"), 性别:g(c,"性别","—"),
       院校:g(c,"最高学历院校","—"), 全日制:g(c,"全日制","—"),
       年龄:g(c,"年龄"), 出生:g(c,"出生日期"), 序列:g(c,"职能序列"),
@@ -679,6 +736,24 @@ function aggregate(people){
       D.gmap[gn].members.push(p);
     }
   }
+  // 被拖空的组：在结构推断之前补回来，这样兼管绑定能正常挂上 ext、
+  // 「兼管分组找不到」的兜底提示也不会误报。部门也被拖空时，连部门一起补。
+  // 注意：补出来的空组会让部门的 groups.length 由 0 变 1，于是结构推断 ②④⑥
+  // 这三条以「该部门没有分组」为前提的规则不再触发——即保持拖动前的分类，
+  // 不会因为拖走一个人就把整个部门改判成中心总监或并进别的部门。这是有意的。
+  const _rawD=window._rawDepts, _cenSel=selectedCenter();
+  EMPTY_KEEP.forEach(e=>{
+    let D=dmap[e.d];
+    // 部门不在视图里有两种原因：真被拖空了（该补），或被用户筛掉了（不该补）。
+    // 未筛选名单里还有这个部门，就说明是后者，整条跳过，免得把关掉的部门画回来。
+    if(!D && _rawD && _rawD.has(e.d)) return;
+    // 只看某个中心时，别把别的中心的空落点画进来（否则会凭空多一个 0 人部门横条）
+    if(_cenSel && (e.cen||"")!==_cenSel) return;
+    if(!D){ D=dmap[e.d]={name:e.d,cen:e.cen||"",mgmt:[],groups:[],gmap:{}}; depts.push(D); }
+    if(!D.gmap[e.g]){ D.gmap[e.g]={name:e.g,members:[],ext:null,keep:true}; D.groups.push(D.gmap[e.g]); }
+    else D.gmap[e.g].keep=true;
+  });
+
   /* ── 结构推断：中心列不管怎么填都能认出真实层级 ──
      ① 中心列 = 顶层名（如「营销」）→ 该部门直属顶层，不算一个中心
      ② 部门名 = 中心名，且还有别的部门归这个中心 → 这些人是中心负责人，不是一个部门
@@ -848,7 +923,7 @@ function aggregate(people){
     });
   };
   depts.forEach(D=>{ regRoles(D.mgmt,D.name); D.groups.forEach(G=>regRoles(G.members,G.name)); });
-  depts.forEach(D=>{ D.groups=D.groups.filter(G=>G.members.length||G.ext); });
+  depts.forEach(D=>{ D.groups=D.groups.filter(G=>G.members.length||G.ext||G.keep); });
   for(let i=depts.length-1;i>=0;i--) if(!depts[i].mgmt.length&&!depts[i].groups.length) depts.splice(i,1);
   window._roleOnly=ROLE_ONLY;
   window._structFixes=FIX;
@@ -984,16 +1059,31 @@ function moveGroupTo(dept,from,to){
   run();
 }
 /* 把一个人挪到别的分组（跨组换归属，落在目标组末尾） */
-function movePerson(name,toDept,toGrp){
+function movePerson(name,toDept,toGrp,fromDept,fromGrp){
   pushUndo();
+  // 无条件记下来源组：组里还有别人时注入是空操作，不必判断「是不是最后一人」，
+  // 这样同组同名两人、筛选视图等边角情况都不会漏判。
+  if(fromGrp && !(fromDept===toDept && fromGrp===toGrp)){
+    // 用拖动者自己的「中心」列：applyCenterFilter 比的就是 p.中心，
+    // 而部门的 cen 是结构推断后的值，两者口径不同，拿来比会漏判
+    const cen=(((lastModel?.people)||[]).find(p=>p.姓名===name)?.中心)||"";
+    const hit=EMPTY_KEEP.find(e=>e.d===fromDept && e.g===fromGrp);
+    if(hit){ if(!hit.by.includes(name)) hit.by.push(name); }
+    else EMPTY_KEEP.push({d:fromDept,g:fromGrp,cen,by:[name]});
+  }
+  EMPTY_KEEP=EMPTY_KEEP.filter(e=>!(e.d===toDept && e.g===toGrp));   // 目标组现在有人了
   PERSON_MOVE[name]={d:toDept,g:toGrp};
   try{ renderGroupFilter(parseRaw()); }catch(e){}
   run();
 }
 let PERSON_MOVE={};         // { 姓名: {d:目标部门, g:目标分组} }，图上跨组拖动的结果
+// 被拖空的组：{d:部门, g:分组, cen:所属中心, by:[造成它变空的人名]}
+// 组一旦没人就会从图上消失，没有落点，人再也拖不回去，所以这里留一个空组头当落点。
+// by 用来失效清理：这些人都不在 PERSON_MOVE 里了（撤销/复位/换数据），这条记录就作废。
+let EMPTY_KEEP=[];
 let UNDO=[];                // 每次拖动前的快照，供「撤销拖动」回退
 function snapshot(){
-  return JSON.stringify({PERSON_ORDER,GROUP_ORDER,DEPT_ORDER,PERSON_MOVE});
+  return JSON.stringify({PERSON_ORDER,GROUP_ORDER,DEPT_ORDER,PERSON_MOVE,EMPTY_KEEP});
 }
 function pushUndo(){
   UNDO.push(snapshot());
@@ -1005,6 +1095,7 @@ function undoDrag(){
   const st=JSON.parse(UNDO.pop());
   PERSON_ORDER=st.PERSON_ORDER; GROUP_ORDER=st.GROUP_ORDER;
   DEPT_ORDER=st.DEPT_ORDER;     PERSON_MOVE=st.PERSON_MOVE;
+  EMPTY_KEEP=st.EMPTY_KEEP||[];
   syncUndoBtn();
   try{ const ppl=parseRaw(); renderDeptFilter(ppl,true); renderGroupFilter(ppl); }catch(e){}
   run();
@@ -1012,7 +1103,7 @@ function undoDrag(){
 function resetDrag(){
   if(!UNDO.length) return;
   pushUndo();                                   // 复位本身也能再撤销
-  PERSON_ORDER={}; GROUP_ORDER={}; PERSON_MOVE={};
+  PERSON_ORDER={}; GROUP_ORDER={}; PERSON_MOVE={}; EMPTY_KEEP=[];
   try{ const ppl=parseRaw(); renderDeptFilter(ppl,true); renderGroupFilter(ppl); }catch(e){}
   run();
 }
@@ -1485,7 +1576,7 @@ function buildSVG(model){
     if(st==="外包"){fill=OUTSRC_FILL;fg=OUTSRC_FG;}      // 外包不在层级序列里，单独用灰底
     else if(st==="管培生"){fill=TRAINEE_FILL;fg=TRAINEE_FG;}  // 管培生同样单独一色，姓名前另有 ★
     else if(st==="试用"||st==="试用延期"){fill=PROBATION_FILL;fg=PROBATION_FG;}  // 试用期：橙底
-    if(drag) S.push(`<g class="pbox"${drag.h?' data-head="1"':''} data-dept="${esc(drag.d)}" data-grp="${esc(drag.g)}" data-name="${esc(drag.n||"")}">`);
+    if(drag) S.push(`<g class="pbox"${drag.h?' data-head="1"':''}${drag.e?' data-empty="1"':''} data-dept="${esc(drag.d)}" data-grp="${esc(drag.g)}" data-name="${esc(drag.n||"")}">`);
     rect(x,y,w,h,fill);
     const cx=x+w/2,maxw=w-10,lh=14.2;
     const avail=h-(tag?TAG_H+3:0);          // 有 B 岗标签时先扣掉它占的高度
@@ -1710,7 +1801,8 @@ function buildSVG(model){
            [`${xl} ${m.专业}`,10.6,"normal"],
            [`${m.工龄}年/${m.司龄}年｜${maskGrade(m.职级)}`,10.6,"normal"]];
         const _p=payLine(m); if(HAS_PAY&&_p) _r.push([_p,10.2,"normal"]);
-        box(gx,GY,COLW,H_GRP,m.层级,_r,mergeTag(sideTag(m),groupTag(G,NAMES)),{d:D.name,g:G.name,n:m.姓名,h:1},m.状态,false,roleOf(m));
+        box(gx,GY,COLW,H_GRP,m.层级,_r,mergeTag(sideTag(m),groupTag(G,NAMES)),
+            {d:D.name,g:G.name,n:m.姓名,h:1,e:(G.keep&&!G.members.length)?1:0},m.状态,false,roleOf(m));
         mem=G.members;
       }else{
         const explicit=G.members.filter(m=>/组头|组长|负责人/.test(m.架构角色||""));
@@ -1722,8 +1814,9 @@ function buildSVG(model){
               {d:D.name,g:G.name,n:ld.姓名,h:1},ld.状态,false,roleOf(ld));
           mem=G.members.filter(m=>m!==ld);
         }else{
-          box(gx,GY,COLW,H_GRP,"组长",[[title,13,"bold"],["（无组负责人）",10.6,"normal"]],
-              groupTag(G,NAMES),{d:D.name,g:G.name,n:"",h:1});
+          box(gx,GY,COLW,H_GRP,"组长",
+              [[title,13,"bold"],[G.members.length?"（无组负责人）":"（暂无人员，可拖人进来）",10.6,"normal"]],
+              groupTag(G,NAMES),{d:D.name,g:G.name,n:"",h:1,e:(G.keep&&!G.members.length)?1:0});
           mem=G.members;
         }
       }
@@ -1932,7 +2025,10 @@ function clearDragMarks(){
    人员 → 落在本组内＝换序；落到别的组（组头或组员都行）＝换归属 */
 function dropKind(t){
   if(!t||!_drag||t===_drag.el) return null;
-  if(_drag.h) return (t.dataset.head && t.dataset.dept===_drag.d) ? "group" : null;
+  // 空落点组不在 GROUP_ORDER 里，整组挪位对它无效，所以不提示可落。
+  // 判据必须用 data-empty——「有人但没有显式组头」的组同样是 data-name=""，
+  // 用名字判会把这类实组的整组挪位一起误伤掉。
+  if(_drag.h) return (t.dataset.head && t.dataset.dept===_drag.d && !t.dataset.empty) ? "group" : null;
   if(t.dataset.dept===_drag.d && t.dataset.grp===_drag.g)
     return t.dataset.name ? "order" : null;      // 空组头没有人，不能当换序目标
   return "move";
@@ -1965,7 +2061,7 @@ document.addEventListener('pointerup',e=>{
   _drag=null; clearDragMarks();
   if(k==="group") moveGroupTo(src.d, src.g, dst.grp);
   else if(k==="order") reorderPerson(src.d, src.g, src.n, dst.name);
-  else if(k==="move") movePerson(src.n, dst.dept, dst.grp);
+  else if(k==="move") movePerson(src.n, dst.dept, dst.grp, src.d, src.g);
 });
 
 /* ═══════════ 数据体检：画之前先找出常见的填写错误 ═══════════ */
@@ -2141,6 +2237,7 @@ function dlDOC(){
           if(hs.length){sect(`${D.cen} ｜ 中心管理（${hs.length} 人）`);hs.forEach(person);}}
         if(D.mgmt.length){sect(`${D.name} ｜ 部门管理（${D.mgmt.length} 人）`);D.mgmt.forEach(person);}
         D.groups.forEach(G=>{
+          if(!G.members.length && (!G.ext || G.keep)) return;   // 被拖空的组只是图上的落点，不进人员资料表
           sect(`${D.name} ｜ ${G.name}（${G.members.length} 人${G.ext?`，负责人由 ${maskText(G.ext.姓名,NAMES)} 兼任`:""}）`);
           G.members.forEach(person);
         });
@@ -2662,6 +2759,32 @@ function showReport(){
 }
 
 /* ═══════════ 示例数据 ═══════════ */
+/* 清空：数据、图、筛选条、拖动结果一起回到初始状态 */
+function clearAll(){
+  const ta=document.getElementById('data');
+  if(ta.value.trim() && !confirm("确定清空？已粘贴的数据和图上所有拖动调整都会丢失。")) return;
+  ta.value="";
+  PERSON_ORDER={}; GROUP_ORDER={}; DEPT_ORDER=[]; PERSON_MOVE={}; EMPTY_KEEP=[]; UNDO=[];
+  syncUndoBtn();
+  lastSVG=""; lastModel=null; _filterReady=false; _titleTouched=false; _notesTouched=false;
+  ["centerFilter","deptFilter","groupFilter"].forEach(id=>{
+    const b=document.getElementById(id);
+    if(b) b.innerHTML='<span class="hint">粘贴数据后点「生成架构图」，这里会列出中心</span>';
+  });
+  document.getElementById('chartbox').innerHTML=
+    '<div class="hint" style="padding:30px;text-align:center">粘贴数据后点「生成架构图」</div>';
+  ["reportbox","pandbox"].forEach(id=>{const b=document.getElementById(id); if(b) b.innerHTML="";});
+  const e=document.getElementById('err'); if(e) e.textContent="";
+  const h=document.getElementById('healthBox'); if(h){h.innerHTML="";h.style.display="none";}
+  const w=document.getElementById('wideTip'); if(w){w.innerHTML="";w.style.display="none";}
+  const hint=document.getElementById('dragHint'); if(hint) hint.textContent="";
+  _drag=null; lastW=0; lastH=0;
+  document.getElementById('title').value="组织架构图";
+  document.getElementById('notes').value=document.getElementById('notes').defaultValue;
+  showTab('chart');
+  ta.focus();
+}
+
 function loadDemo(){
   document.getElementById('data').value=
 `中心	部门	分组	姓名	岗位	层级	性别	学历	在职学历	毕业院校	所学专业	工龄	司龄	职等职级	月薪	年薪	全日制	核心岗位	B岗人员	培养方向	状态	兼管分组
